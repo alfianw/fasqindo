@@ -1,0 +1,12 @@
+{$DOMAIN}, www.{$DOMAIN} {
+	encode zstd gzip
+	reverse_proxy frontend:3000
+}
+
+api.{$DOMAIN} {
+	reverse_proxy backend:8080
+}
+
+cdn.{$DOMAIN} {
+	reverse_proxy minio:9000
+}

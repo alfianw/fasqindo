@@ -1,0 +1,99 @@
+name: fasqindo
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required (letters and digits only)}
+      POSTGRES_DB: fasqindo
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d fasqindo"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - fasqindo
+
+  minio:
+    image: pgsty/silo:RELEASE.2026-09-16T00-00-00Z
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${STORAGE_ACCESS_KEY:?STORAGE_ACCESS_KEY is required}
+      MINIO_ROOT_PASSWORD: ${STORAGE_SECRET_KEY:?STORAGE_SECRET_KEY is required (letters and digits only, min 16 chars)}
+    volumes:
+      - miniodata:/data
+    ports:
+      - "127.0.0.1:9001:9001"
+    networks:
+      - fasqindo
+
+  backend:
+    build:
+      context: ../be
+    restart: unless-stopped
+    environment:
+      APP_ENV: production
+      APP_PORT: "8080"
+      DATABASE_URL: postgres://postgres:${POSTGRES_PASSWORD:?}@postgres:5432/fasqindo
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
+      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-24h}
+      FRONTEND_URL: https://${DOMAIN:?},https://www.${DOMAIN}
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@fasqindo.com}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?ADMIN_PASSWORD is required}
+      STORAGE_ENDPOINT: http://minio:9000
+      STORAGE_REGION: us-east-1
+      STORAGE_BUCKET: ${STORAGE_BUCKET:-fasqindo}
+      STORAGE_ACCESS_KEY: ${STORAGE_ACCESS_KEY:?}
+      STORAGE_SECRET_KEY: ${STORAGE_SECRET_KEY:?}
+      STORAGE_PUBLIC_URL: https://cdn.${DOMAIN}/${STORAGE_BUCKET:-fasqindo}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_started
+    networks:
+      - fasqindo
+
+  frontend:
+    build:
+      context: ../fe
+      args:
+        NEXT_PUBLIC_API_URL: https://api.${DOMAIN:?}
+    restart: unless-stopped
+    depends_on:
+      - backend
+    networks:
+      - fasqindo
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    environment:
+      DOMAIN: ${DOMAIN:?}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - frontend
+      - backend
+    networks:
+      - fasqindo
+
+networks:
+  fasqindo:
+
+volumes:
+  pgdata:
+  miniodata:
+  caddy_data:
+  caddy_config:

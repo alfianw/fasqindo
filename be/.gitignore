@@ -1,0 +1,14 @@
+.env
+.env.local
+*.env
+!.env.example
+
+bin/
+dist/
+*.exe
+*.test
+*.out
+
+# Go workspace
+go.work
+go.work.sum
